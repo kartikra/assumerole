@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "assumerole"
+version = "0.4.0"
+description = "Python  utility that allows users to perform aws assume-role operation between different profiles"
+authors = ["Kartik Ramasubramanian <r.kartik@berkeley.edu>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/kartikra/assumerole"
+repository = "https://github.com/kartikra/assumerole"
+keywords = ["AWS", "aws sts", "assume-role"]
+
+classifiers = [
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+[tool.poetry.dependencies]
+python = "^3.6"
+
+[tool.poetry.dev-dependencies]
+pytest = "^5.2"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+assume = "assumerole.main:app"
+
