@@ -36,7 +36,7 @@ In case you do not want to use your cached tokens use the optional refresh param
 ```assume --p <aws-profile-name> --r```
 
 
-###TODO:
+### TODO:
 - Perform comprehensive coverage testing. After package is tested fully it will be made available in pypi.org
 - In the meantime, do test it out and feel free to submit PRs
 
