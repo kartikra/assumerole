@@ -27,7 +27,7 @@ or
 You may be prompted to pass your MFA code if its required
 
 By default, the tokens returned are cached under the folder ```~/.aws/cached_tokens```
-Only if the token has expired, will new tokens be requested from AWS
+Only if the token has expired, will new tokens be requested from AWS.
 You can also find a history of all successful commands in the file ```~/.aws/assume_role_history```
 
 In case you do not want to use your cached tokens use the optional refresh parameter
@@ -37,6 +37,6 @@ In case you do not want to use your cached tokens use the optional refresh param
 
 
 ### TODO:
-- Perform comprehensive coverage testing. After package is tested fully it will be made available in pypi.org
+- Perform comprehensive coverage testing. Once package is tested fully, it will be made available in pypi.org
 - In the meantime, do test it out and feel free to submit PRs
 
