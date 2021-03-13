@@ -33,7 +33,7 @@ You can also find a history of all successful commands in the file ```~/.aws/ass
 In case you do not want to use your cached tokens use the optional refresh parameter
 
 ```assume --profile <aws-profile-name> --refresh``` or
-```assume --p <aws-profile-name> --r```
+```assume -p <aws-profile-name> -r```
 
 
 ### TODO:
