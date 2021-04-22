@@ -9,8 +9,8 @@ This utility makes it easier to switch between multiple AWS profiles.
 - aws credentials are provided under ~/.aws/credentials
 - all the aws profiles are created correctly under ~/.aws/config
 
-This utility uses the command ```aws sts assume-role ```.
-You can learn more about this command under [awscli](https://docs.aws.amazon.com/cli/latest/reference/sts/assume-role.html)
+This utility uses sts utility within the [boto3 package](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/sts.html).
+You can learn more about sts command under [awscli](https://docs.aws.amazon.com/cli/latest/reference/sts/assume-role.html)
 
 
 ### Installation:

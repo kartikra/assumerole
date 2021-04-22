@@ -1,20 +1,10 @@
 import configparser
 import os
-from subprocess import Popen, PIPE
+import boto3
 import json
-import datetime
 import time
-
-
-def call_sub_process(command):
-
-    process = Popen(['/bin/bash', '-c', command], stdout=PIPE, stderr=PIPE)
-    stdout, stderr = process.communicate()
-
-    results = stdout.decode('utf-8')
-    error_message = stderr.decode('utf-8')
-
-    return results, error_message
+import botocore.exceptions
+from botocore.session import Session
 
 
 def check_aws_config_file():
@@ -26,62 +16,61 @@ def check_aws_config_file():
             config = configparser.ConfigParser()
             config.read(aws_config_file)
 
-            if not os.path.isdir(os.environ['HOME'] + "/.aws/cached_tokens"):
+            if not os.path.isdir(os.environ['HOME'] + "/.aws/cached_tokens"):   # pragma: no cover
                 os.makedirs(os.environ['HOME'] + "/.aws/cached_tokens")
-        else:
+        else:   # pragma: no cover
             print(aws_config_file + " not found. Exiting")
-    else:
+    else:   # pragma: no cover
         print("~/.aws folder not found. Exiting")
 
     return config
 
 
-def run_assume_role(config, aws_profile_name):
-
-    history_file = os.environ['HOME'] + "/.aws/assume_role_history"
+def run_assume_role(config, aws_profile_name, expire_duration_hours=8):
 
     list_aws_profile = config.sections()
     if "profile " + aws_profile_name in list_aws_profile:
-        aws_profile_config = config["profile " + aws_profile_name]
-        role_arn = aws_profile_config.get("role_arn", "")
-        external_id = aws_profile_config.get("external_id", "")
-        mfa_serial = aws_profile_config.get("mfa_serial", "")
+
         session = "dev"
+        aws_config = Session(profile=aws_profile_name).get_scoped_config()
 
-        command = "aws sts assume-role --role-session-name {session}".format(mfa_serial=mfa_serial, session=session)
-
-        if role_arn != "":
-            command += " --role-arn {0}".format(role_arn)
-
-        if mfa_serial != "":
-            command += " --serial-number {0}".format(mfa_serial)
-
-        if external_id != "":
-            command += " --external-id {0}".format(external_id)
-
-        stdout, error_message = call_sub_process(command)
-
-        while error_message != "":
-            print(error_message)
+        # Construct assume role request
+        assert "role_arn" in aws_config, f"{aws_profile_name} does not have role_arn."
+        rq = {
+            "RoleArn": aws_config["role_arn"],
+            "RoleSessionName": session,
+            "DurationSeconds": (expire_duration_hours*3600)
+        }
+        expire_time = int(time.time()) + (expire_duration_hours*3600)
+        # Add MFA token if needed
+        if "mfa_serial" in aws_config:  # pragma: no cover
             print("\n Enter MFA Code:")
             mfa_code = input()
-            command_with_mfa = command + " --token-code " + mfa_code
-            stdout, error_message = call_sub_process(command_with_mfa)
+            rq["SerialNumber"] = aws_config["mfa_serial"]
+            rq["TokenCode"] = mfa_code
 
-        cached_folder = os.environ['HOME'] + "/.aws/cached_tokens"
-        with open(cached_folder + "/" + aws_profile_name + ".txt", "w") as fp:
-            fp.write(stdout)
-            fp.close()
+        # Get auth token
+        try:
+            sts = boto3.client("sts")
+            sts_response = sts.assume_role(**rq)
+            sts_response['Credentials']["Expiration"] = expire_time
 
-        with open(history_file, 'a') as ap:
-            ap.write("\n" + aws_profile_name + "\n")
-            ap.write(command + "\n")
-            ap.close()
+            cached_folder = os.environ['HOME'] + "/.aws/cached_tokens"
+            with open(cached_folder + "/" + aws_profile_name + ".txt", "w") as fp:
+                fp.write(json.dumps(sts_response))
+                fp.close()
+            assume_role_status = True
+
+        except botocore.exceptions.ClientError as ex:
+            print(ex.response)
+            print("\nProfile {0} not set correctly. Please retry with correct credentials\n".format(aws_profile_name))
+            assume_role_status = False
 
     else:
-        print("aws profile not found")
+        print("aws profile not found\n")
+        assume_role_status = False
 
-    return
+    return assume_role_status
 
 
 def check_cached_token(aws_profile_name):
@@ -93,27 +82,20 @@ def check_cached_token(aws_profile_name):
         with open(aws_cached_file, "r") as fp:
             cached_string = fp.read()
             fp.close()
-        cached_config = json.loads(cached_string)
+        try:
+            cached_config = json.loads(cached_string)
+        except json.decoder.JSONDecodeError:    # pragma: no cover
+            cached_config = {}
     else:
         cached_config = {}
 
-    expiration = cached_config.get("Credentials", {}).get("Expiration", "")
-    if expiration != "":
-        if expiration.find("+") > -1:
-            new_expiration = expiration.split("+")[0]
-            expire_ts = time.mktime(datetime.datetime.strptime(new_expiration,
-                                                               "%Y-%m-%dT%H:%M:%S").timetuple())
-        else:
-            new_expiration = expiration
-            expire_ts = time.mktime(datetime.datetime.strptime(new_expiration,
-                                                               "%Y-%m-%dT%H:%M:%SZ").timetuple())
-        utc_time = datetime.datetime.utcnow()
-        current_ts = utc_time.timestamp()
-        if round(current_ts) <= round(expire_ts):
+    expiration = cached_config.get("Credentials", {}).get("Expiration", -1)
+    if expiration != -1:
+        if int(time.time()) <= expiration:
             token_expired = False
-        else:
+        else:   # pragma: no cover
             token_expired = True
-    else:
+    else:   # pragma: no cover
         token_expired = True
 
     return token_expired
@@ -128,35 +110,41 @@ def set_cached_token(aws_profile_name):
         with open(aws_cached_file, "r") as fp:
             cached_string = fp.read()
             fp.close()
-        cached_config = json.loads(cached_string)
+
+        try:
+            cached_config = json.loads(cached_string)
+        except json.decoder.JSONDecodeError:    # pragma: no cover
+            cached_config = {}
     else:
         cached_config = {}
 
     my_env = os.environ.copy()
-    my_env['AWS_ACCESS_KEY_ID'] = cached_config.get("Credentials", {}).get("AccessKeyId", "")
-    my_env['AWS_SECRET_ACCESS_KEY'] = cached_config.get("Credentials", {}).get("SecretAccessKey", "")
-    my_env['AWS_SESSION_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
-    my_env['AWS_SECURITY_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
-    my_env['ASSUMED_ROLE'] = aws_profile_name
+    set_command = ""
 
-    set_cmd = list()
-    set_cmd.append("unset AWS_ACCESS_KEY_ID")
-    set_cmd.append("unset AWS_SECRET_ACCESS_KEY")
-    set_cmd.append("unset AWS_SESSION_TOKEN")
-    set_cmd.append("unset AWS_SECURITY_TOKEN")
-    set_cmd.append("unset ASSUMED_ROLE")
-    set_cmd.append("export AWS_ACCESS_KEY_ID=\"{0}\"".format(cached_config.get("Credentials", {}).get("AccessKeyId", "")))
-    set_cmd.append("export AWS_SECRET_ACCESS_KEY='{0}'".format(cached_config.get("Credentials", {}).get("SecretAccessKey", "")))
-    set_cmd.append("export AWS_SESSION_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
-    set_cmd.append("export AWS_SECURITY_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
-    set_cmd.append("export ASSUMED_ROLE='{0}'".format(aws_profile_name))
+    if cached_config != {}:
+        my_env['AWS_ACCESS_KEY_ID'] = cached_config.get("Credentials", {}).get("AccessKeyId", "")
+        my_env['AWS_SECRET_ACCESS_KEY'] = cached_config.get("Credentials", {}).get("SecretAccessKey", "")
+        my_env['AWS_SESSION_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
+        my_env['AWS_SECURITY_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
+        my_env['ASSUMED_ROLE'] = aws_profile_name
 
-    set_command = ';'.join(set_cmd)
+        set_cmd = list()
+        set_cmd.append("unset AWS_ACCESS_KEY_ID")
+        set_cmd.append("unset AWS_SECRET_ACCESS_KEY")
+        set_cmd.append("unset AWS_SESSION_TOKEN")
+        set_cmd.append("unset AWS_SECURITY_TOKEN")
+        set_cmd.append("unset ASSUMED_ROLE")
+        set_cmd.append("export AWS_ACCESS_KEY_ID=\"{0}\"".format(cached_config.get("Credentials", {}).get("AccessKeyId", "")))
+        set_cmd.append("export AWS_SECRET_ACCESS_KEY='{0}'".format(cached_config.get("Credentials", {}).get("SecretAccessKey", "")))
+        set_cmd.append("export AWS_SESSION_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
+        set_cmd.append("export AWS_SECURITY_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
+        set_cmd.append("export ASSUMED_ROLE='{0}'".format(aws_profile_name))
+        set_command = ';'.join(set_cmd)
 
     return my_env, set_command
 
 
-def assume_role_wrapper(aws_profile_name, force_refresh=False):
+def set_profile(aws_profile_name, force_refresh=False, expire_duration_hours=12):
 
     config = check_aws_config_file()
     os_env = os.environ.copy()
@@ -164,7 +152,13 @@ def assume_role_wrapper(aws_profile_name, force_refresh=False):
 
     if config is not None:
         if check_cached_token(aws_profile_name) or force_refresh:
-            run_assume_role(config, aws_profile_name)
+            if not run_assume_role(config, aws_profile_name, expire_duration_hours):
+                return os_env, command
+
         os_env, command = set_cached_token(aws_profile_name)
+        os.environ = os_env
 
     return os_env, command
+
+
+
