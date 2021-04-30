@@ -26,7 +26,7 @@ def check_aws_config_file():
     return config
 
 
-def run_assume_role(config, aws_profile_name, expire_duration_hours=8):
+def set_profile(config, aws_profile_name, expire_duration_hours=8):
 
     list_aws_profile = config.sections()
     if "profile " + aws_profile_name in list_aws_profile:
@@ -121,30 +121,33 @@ def set_cached_token(aws_profile_name):
     my_env = os.environ.copy()
     set_command = ""
 
-    if cached_config != {}:
-        my_env['AWS_ACCESS_KEY_ID'] = cached_config.get("Credentials", {}).get("AccessKeyId", "")
-        my_env['AWS_SECRET_ACCESS_KEY'] = cached_config.get("Credentials", {}).get("SecretAccessKey", "")
-        my_env['AWS_SESSION_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
-        my_env['AWS_SECURITY_TOKEN'] = cached_config.get("Credentials", {}).get("SessionToken", "")
+    variable_mapping = dict()
+    variable_mapping["AWS_ACCESS_KEY_ID"] = "AccessKeyId"
+    variable_mapping["AWS_SECRET_ACCESS_KEY"] = "SecretAccessKey"
+    variable_mapping["AWS_SESSION_TOKEN"] = "SessionToken"
+    variable_mapping["AWS_SECURITY_TOKEN"] = "SessionToken"
+
+    if cached_config != {} and cached_config.get("Credentials", {}) != {}:
+        cached_credentials = cached_config["Credentials"]
+
+        for target, source in variable_mapping.items():
+            my_env[target] = cached_credentials.get(source, "")
         my_env['ASSUMED_ROLE'] = aws_profile_name
 
         set_cmd = list()
-        set_cmd.append("unset AWS_ACCESS_KEY_ID")
-        set_cmd.append("unset AWS_SECRET_ACCESS_KEY")
-        set_cmd.append("unset AWS_SESSION_TOKEN")
-        set_cmd.append("unset AWS_SECURITY_TOKEN")
+        for target, source in variable_mapping.items():
+            set_cmd.append("unset {0}".format(target))
+            set_cmd.append("export {0}=\"{1}\"".format(target, cached_credentials.get(source, "")))
+
         set_cmd.append("unset ASSUMED_ROLE")
-        set_cmd.append("export AWS_ACCESS_KEY_ID=\"{0}\"".format(cached_config.get("Credentials", {}).get("AccessKeyId", "")))
-        set_cmd.append("export AWS_SECRET_ACCESS_KEY='{0}'".format(cached_config.get("Credentials", {}).get("SecretAccessKey", "")))
-        set_cmd.append("export AWS_SESSION_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
-        set_cmd.append("export AWS_SECURITY_TOKEN='{0}'".format(cached_config.get("Credentials", {}).get("SessionToken", "")))
         set_cmd.append("export ASSUMED_ROLE='{0}'".format(aws_profile_name))
+
         set_command = ';'.join(set_cmd)
 
     return my_env, set_command
 
 
-def set_profile(aws_profile_name, force_refresh=False, expire_duration_hours=12):
+def assume_role(aws_profile_name, force_refresh=False, expire_duration_hours=8):
 
     config = check_aws_config_file()
     os_env = os.environ.copy()
@@ -152,13 +155,10 @@ def set_profile(aws_profile_name, force_refresh=False, expire_duration_hours=12)
 
     if config is not None:
         if check_cached_token(aws_profile_name) or force_refresh:
-            if not run_assume_role(config, aws_profile_name, expire_duration_hours):
+            if not set_profile(config, aws_profile_name, expire_duration_hours):
                 return os_env, command
 
         os_env, command = set_cached_token(aws_profile_name)
         os.environ = os_env
 
     return os_env, command
-
-
-
