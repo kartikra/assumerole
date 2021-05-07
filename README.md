@@ -14,9 +14,9 @@ You can learn more about sts command under [awscli](https://docs.aws.amazon.com/
 
 
 ### Installation:
+```pip install assumerole```
+For using latest test version (under development)
 ```pip install --index-url https://test.pypi.org/simple/  assumerole```
-For updating existing package use
-```pip install -U --index-url https://test.pypi.org/simple/  assumerole```
 
 
 ### Usage

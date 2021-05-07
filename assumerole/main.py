@@ -13,7 +13,7 @@ def app():
 
     # Read arguments from the command line. Note args.refresh defaults to False when not specified
     args = parser.parse_args()
-    os_env, command = identity.assume_role(args.profile, args.refresh, args.duration)
+    os_env, command = identity.assume_role(args.profile, args.refresh, int(args.duration))
     print(command)
 
 
